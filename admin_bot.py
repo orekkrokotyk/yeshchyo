@@ -1,40 +1,76 @@
-import telebot
-from telebot import types
-import main_bot
-admin_key = "123"
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.filters import Command
+from aiogram.types import Message
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-bot = telebot.TeleBot("7898989327:AAHJWKTbd4LZ4XkHjiG3a5oyi2eeO4Dnf8k")
+import asyncio
 
-@bot.message_handler(commands=['start', 'restart'])
-def start_message(message):
-    bot.send_message(message.chat.id, f"""Добро пожаловать, если вы админ ввидите команду /admin""")
+import static
+import db_function
 
+def admin_menu():
+    buttons = [
+            [types.InlineKeyboardButton(text='Меню', callback_data='Меню')],
+            [types.InlineKeyboardButton(text='Заказы', callback_data='Заказы')]
+        ]
+        
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
+    return keyboard
 
-@bot.message_handler(commands=['admin'])
-def admin_message(message):
-    bot.send_message(message.chat.id, f"""Ввидите ключь""")
-    bot.register_next_step_handler(message, check_admin)
+class Admin(StatesGroup):
+    pas = State()
+    req_menu = State()
 
+class Menu(StatesGroup):
+    type = State()
 
-def check_admin(message):
-    if message.text == admin_key:
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(types.InlineKeyboardButton(text='Меню', callback_data='Меню'))
-        markup.add(types.InlineKeyboardButton(text='Заказы', callback_data='Заказы'))
+bot = Bot(token="7898989327:AAHJWKTbd4LZ4XkHjiG3a5oyi2eeO4Dnf8k")
+dp = Dispatcher()
 
-        bot.send_message(message.chat.id, f"""Добро пожаловать на кухню""", reply_markup=markup)
+@dp.message(Command(commands=['start', 'restart']))
+async def start(message: Message):
+    await message.answer("Добро пожаловать, если вы админ ввидите команду /admin")
+
+@dp.message(Command('admin'))
+async def admin_message(message: Message, state: FSMContext):
+    await state.set_state(Admin.pas)
+    await message.answer("Ввидите ключь")
+
+@dp.message(Admin.pas)
+async def check_admin(message: Message, state: FSMContext):
+    if message.text == static.admin_key:
+        await state.set_state(Admin.req_menu)
+
+        await message.answer("Добро пожаловать на кухню", reply_markup=admin_menu())
     else:
-        bot.send_message(message.chat.id, f"""Хорошая попытка. Напишите команду /admin для ещё одной попытки или /restart если передумали""")
+        await message.answer("Хорошая попытка. Напишите команду /admin для ещё одной попытки или /restart если передумали")
 
-@bot.callback_query_handler(func=lambda callback: callback.data)
-def callback_query(callback):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    if callback.data == 'Меню':
-        button1 = types.InlineKeyboardButton(text="Напиток🥤", callback_data="drink")
-        button2 = types.InlineKeyboardButton(text="Лапша 🥡", callback_data="drink")
-        button3 = types.InlineKeyboardButton(text="Бургер 🍔", callback_data="drink")
-        markup.add(button1, button2)
-        markup.add(button3)
-        bot.send_message(callback.message.chat.id, "MENU", reply_markup=markup)
 
-bot.infinity_polling()
+@dp.callback_query(F.data == 'Меню', Admin.req_menu)
+async def callback_query(callback: types.CallbackQuery, state: FSMContext):
+    buttons = [
+        [
+            types.InlineKeyboardButton(text="Напиток🥤", callback_data="drink"),
+            types.InlineKeyboardButton(text="Лапша 🥡", callback_data="noodle")
+        ],
+        [types.InlineKeyboardButton(text="Бургер 🍔", callback_data="burger")]
+    ]
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
+    await state.set_state(Menu.type)
+    await callback.message.answer("Тутошние разделы меню", reply_markup=keyboard)
+    await callback.answer()
+
+@dp.callback_query(Menu.type)
+async def callback_query(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer(db_function.element_menu(callback.data))
+
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
